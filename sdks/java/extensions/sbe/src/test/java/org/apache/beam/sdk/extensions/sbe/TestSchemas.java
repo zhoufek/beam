@@ -75,8 +75,21 @@ public final class TestSchemas {
             .setIsRequired(true)
             .setType(PrimitiveType.DOUBLE)
             .build();
+    public static final SbeField DEFAULT_CHAR =
+        PrimitiveSbeField.builder()
+            .setName("defaultChar")
+            .setIsRequired(true)
+            .setType(PrimitiveType.CHAR)
+            .build();
+    public static final SbeField NON_DEFAULT_CHAR =
+        PrimitiveSbeField.builder()
+            .setName("nonDefaultChar")
+            .setIsRequired(true)
+            .setType(PrimitiveType.CHAR)
+            .setCharacterEncoding("ASCII")
+            .build();
     public static final ImmutableList<SbeField> FIELDS =
-        ImmutableList.of(INT32_FIELD, UINT32_FIELD, DOUBLE_FIELD);
+        ImmutableList.of(INT32_FIELD, UINT32_FIELD, DOUBLE_FIELD, DEFAULT_CHAR, NON_DEFAULT_CHAR);
   }
 
   /** Info for only-primitives-multi-message.xml. */

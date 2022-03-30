@@ -23,6 +23,7 @@ import org.apache.beam.sdk.annotations.Experimental.Kind;
 import org.apache.beam.sdk.extensions.sbe.UnsignedOptions.Behavior;
 import org.apache.beam.sdk.schemas.Schema.Field;
 import org.apache.beam.sdk.schemas.Schema.FieldType;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import uk.co.real_logic.sbe.PrimitiveType;
 
 /** Represents a primitive SBE field. */
@@ -39,6 +40,14 @@ abstract class PrimitiveSbeField implements SbeField {
 
   public abstract PrimitiveType type();
 
+  /**
+   * The encoding of the character.
+   *
+   * <p>This is only relevant in the case of {@link PrimitiveSbeField#type()} being {@link
+   * PrimitiveType#CHAR} and is optional if the character encoding is ISO 8859-1.
+   */
+  public abstract @Nullable String characterEncoding();
+
   @Override
   public Field asBeamField(SbeFieldOptions options) {
     FieldType type = beamType(options);
@@ -48,8 +57,6 @@ abstract class PrimitiveSbeField implements SbeField {
   private FieldType beamType(SbeFieldOptions options) {
     switch (type()) {
       case CHAR:
-        // TODO(BEAM-12697): Support char types
-        throw new UnsupportedOperationException("char type not supported yet (BEAM-12697)");
       case INT8:
         return FieldType.BYTE;
       case INT16:
@@ -154,6 +161,8 @@ abstract class PrimitiveSbeField implements SbeField {
     public abstract Builder setIsRequired(Boolean value);
 
     public abstract Builder setType(PrimitiveType value);
+
+    public abstract Builder setCharacterEncoding(@Nullable String value);
 
     public abstract PrimitiveSbeField build();
   }

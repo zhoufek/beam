@@ -31,10 +31,13 @@
       <type name="numGroups" primitiveType="uint16" />
       <type name="numVarDataFields" primitiveType="uint16" />
     </composite>
+    <type name="asciiChar" primitiveType="char" characterEncoding="ASCII" />
   </types>
   <sbe:message name="Primitives" id="1" description="Contains various primitives">
     <field name="int32Primitive" id="1" type="int32" />
     <field name="uint32Primitive" id="2" type="uint32" presence="optional" />
     <field name="doublePrimitive" id="3" type="double" />
+    <field name="defaultChar" id="4" type="char" />
+    <field name="nonDefaultChar" id="5" type="asciiChar"  />
   </sbe:message>
 </sbe:messageSchema>

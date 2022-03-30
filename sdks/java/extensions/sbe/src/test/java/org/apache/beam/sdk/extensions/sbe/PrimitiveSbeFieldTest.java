@@ -107,4 +107,25 @@ public final class PrimitiveSbeFieldTest {
     Field expected = Field.of(NAME, FieldType.INT64);
     assertEquals(expected, actual);
   }
+
+  @Test
+  public void testCharAsBeamField() {
+    SbeField field =
+        PrimitiveSbeField.builder()
+            .setName(NAME)
+            .setIsRequired(true)
+            .setType(PrimitiveType.CHAR)
+            .build();
+
+    Field actual =
+        field.asBeamField(
+            SbeFieldOptions.builder()
+                .setUnsignedOptions(UnsignedOptions.usingSameBitSize())
+                .build());
+
+    // Beam has no concept of a char type, but SBE only supports 8-bit encodings, so it is enough
+    // to make it a byte.
+    Field expected = Field.of(NAME, FieldType.BYTE);
+    assertEquals(expected, actual);
+  }
 }
