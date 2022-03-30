@@ -21,19 +21,27 @@ import static java.util.stream.Collectors.collectingAndThen;
 import static java.util.stream.Collectors.toList;
 import static org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions.checkArgument;
 
+import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.annotations.Experimental.Kind;
 import org.apache.beam.sdk.extensions.sbe.SbeSchema.IrOptions;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableList;
+import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 import uk.co.real_logic.sbe.ir.Encoding.Presence;
 import uk.co.real_logic.sbe.ir.Ir;
+import uk.co.real_logic.sbe.ir.Signal;
 import uk.co.real_logic.sbe.ir.Token;
 
 /** Utility for generating {@link SbeField}s from an {@link Ir}. */
 @Experimental(Kind.SCHEMAS)
 final class IrFieldGenerator {
+  // Convenience consumer for when a token should be skipped.
+  private static final Consumer<Token> DO_NOTHING = token -> {};
+
   private IrFieldGenerator() {}
 
   /**
@@ -104,18 +112,90 @@ final class IrFieldGenerator {
 
   /** Handles creating a field from the iterator. */
   private static SbeField processPrimitive(TokenIterator iterator) {
-    checkArgument(iterator.hasNext());
-
     PrimitiveSbeField.Builder primitiveField = PrimitiveSbeField.builder();
-    Token beginMessageToken = iterator.current();
-    primitiveField.setName(beginMessageToken.name());
-    // At least for primitive fields, the presence is either REQUIRED or OPTIONAL, never CONSTANT.
-    primitiveField.setIsRequired(beginMessageToken.encoding().presence() == Presence.REQUIRED);
 
-    Token encodingToken = iterator.next();
-    primitiveField.setType(encodingToken.encoding().primitiveType());
+    FieldHandler handler =
+        FieldHandler.builder()
+            .onBeginField(
+                token -> {
+                  primitiveField.setName(token.name());
+                  // At least for primitive fields, the presence is never CONSTANT.
+                  primitiveField.setIsRequired(token.encoding().presence() == Presence.REQUIRED);
+                })
+            .onEncoding(token -> primitiveField.setType(token.encoding().primitiveType()))
+            .onEndField(DO_NOTHING)
+            .build();
+    handler.handle(iterator);
 
     return primitiveField.build();
+  }
+
+  /** */
+  private static final class FieldHandler {
+    private final ImmutableMap<Signal, Consumer<Token>> tokenHandlers;
+
+    private FieldHandler(ImmutableMap<Signal, Consumer<Token>> tokenHandlers) {
+      this.tokenHandlers = tokenHandlers;
+    }
+
+    static Builder builder() {
+      return new Builder();
+    }
+
+    void handle(TokenIterator iterator) {
+      checkArgument(iterator.current().signal() == Signal.BEGIN_FIELD, "Not beginning of field.");
+      checkArgument(iterator.hasNext(), "Field does not have other tokens");
+
+      do {
+        Token token = iterator.current();
+        handle(token);
+
+        if (token.signal() == Signal.END_FIELD) {
+          return;
+        }
+
+        iterator.next();
+      } while (iterator.hasNext());
+
+      throw new IllegalArgumentException("Never found END_FIELD signal.");
+    }
+
+    void handle(Token token) {
+      Signal signal = token.signal();
+      tokenHandlers.getOrDefault(signal, DO_NOTHING).accept(token);
+    }
+
+    static final class Builder {
+      private final Map<Signal, Consumer<Token>> tokenHandlers;
+
+      Builder() {
+        this.tokenHandlers = new EnumMap<>(Signal.class);
+      }
+
+      Builder onBeginField(Consumer<Token> tokenHandler) {
+        return withTokenHandler(Signal.BEGIN_FIELD, tokenHandler);
+      }
+
+      Builder onEncoding(Consumer<Token> tokenHandler) {
+        return withTokenHandler(Signal.ENCODING, tokenHandler);
+      }
+
+      Builder onEndField(Consumer<Token> tokenHandler) {
+        return withTokenHandler(Signal.END_FIELD, tokenHandler);
+      }
+
+      private Builder withTokenHandler(Signal signal, Consumer<Token> tokenHandler) {
+        checkArgument(
+            !tokenHandlers.containsKey(signal),
+            "Another handler already registered for: " + signal.name());
+        tokenHandlers.put(signal, tokenHandler);
+        return this;
+      }
+
+      FieldHandler build() {
+        return new FieldHandler(ImmutableMap.copyOf(tokenHandlers));
+      }
+    }
   }
 
   /** {@link Iterator} over {@link Token}s with support for getting current one. */
