@@ -29,8 +29,10 @@ import java.util.function.Consumer;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.annotations.Experimental.Kind;
 import org.apache.beam.sdk.extensions.sbe.SbeSchema.IrOptions;
+import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Strings;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableList;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
+import uk.co.real_logic.sbe.ir.Encoding;
 import uk.co.real_logic.sbe.ir.Encoding.Presence;
 import uk.co.real_logic.sbe.ir.Ir;
 import uk.co.real_logic.sbe.ir.Signal;
@@ -41,6 +43,8 @@ import uk.co.real_logic.sbe.ir.Token;
 final class IrFieldGenerator {
   // Convenience consumer for when a token should be skipped.
   private static final Consumer<Token> DO_NOTHING = token -> {};
+
+  private static final int PRIMITIVE_TOKEN_COUNT = 3;
 
   private IrFieldGenerator() {}
 
@@ -55,15 +59,9 @@ final class IrFieldGenerator {
     ImmutableList.Builder<SbeField> fields = ImmutableList.builder();
 
     TokenIterator iterator = getIteratorForMessage(ir, irOptions);
-    while (iterator.hasNext()) {
-      Token token = iterator.next();
-      switch (token.signal()) {
-        case BEGIN_FIELD:
-          fields.add(processPrimitive(iterator));
-          break;
-        default:
-          // TODO(BEAM-12697): Support remaining field types
-          break;
+    while (iterator.hasNext() && iterator.next().signal() != Signal.END_MESSAGE) {
+      if (iterator.current().signal() == Signal.BEGIN_FIELD) {
+        fields.add(processField(iterator));
       }
     }
 
@@ -110,6 +108,15 @@ final class IrFieldGenerator {
     return new TokenIterator(messages);
   }
 
+  private static SbeField processField(TokenIterator iterator) {
+    if (iterator.current().componentTokenCount() == PRIMITIVE_TOKEN_COUNT) {
+      return processPrimitive(iterator);
+    }
+
+    throw new IllegalArgumentException(
+        "Do not recognize type of field: " + iterator.current().name());
+  }
+
   /** Handles creating a field from the iterator. */
   private static SbeField processPrimitive(TokenIterator iterator) {
     PrimitiveSbeField.Builder primitiveField = PrimitiveSbeField.builder();
@@ -122,7 +129,14 @@ final class IrFieldGenerator {
                   // At least for primitive fields, the presence is never CONSTANT.
                   primitiveField.setIsRequired(token.encoding().presence() == Presence.REQUIRED);
                 })
-            .onEncoding(token -> primitiveField.setType(token.encoding().primitiveType()))
+            .onEncoding(
+                token -> {
+                  Encoding encoding = token.encoding();
+                  primitiveField.setType(encoding.primitiveType());
+                  if (!Strings.isNullOrEmpty(encoding.characterEncoding())) {
+                    primitiveField.setCharacterEncoding(encoding.characterEncoding());
+                  }
+                })
             .onEndField(DO_NOTHING)
             .build();
     handler.handle(iterator);
