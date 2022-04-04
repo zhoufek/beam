@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.extensions.sbe;
 
+import static java.lang.Math.toIntExact;
 import static java.util.stream.Collectors.collectingAndThen;
 import static java.util.stream.Collectors.toList;
 import static org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions.checkArgument;
@@ -112,6 +113,9 @@ final class IrFieldGenerator {
     if (iterator.current().componentTokenCount() == PRIMITIVE_TOKEN_COUNT) {
       return processPrimitive(iterator);
     }
+    if (iterator.peekNext().signal() == Signal.BEGIN_ENUM) {
+      return processEnum(iterator);
+    }
 
     throw new IllegalArgumentException(
         "Do not recognize type of field: " + iterator.current().name());
@@ -139,9 +143,30 @@ final class IrFieldGenerator {
                 })
             .onEndField(DO_NOTHING)
             .build();
-    handler.handle(iterator);
+    handler.handleIterator(iterator);
 
     return primitiveField.build();
+  }
+
+  /** Handles processing an enum. */
+  private static SbeField processEnum(TokenIterator iterator) {
+    EnumSbeField.Builder enumSbeField = EnumSbeField.builder();
+    ImmutableMap.Builder<String, Integer> values = ImmutableMap.builder();
+
+    FieldHandler handler =
+        FieldHandler.builder()
+            .onBeginField(token -> enumSbeField.setName(token.name()))
+            .onBeginEnum(DO_NOTHING)
+            .onValidValue(
+                token ->
+                    values.put(token.name(), toIntExact(token.encoding().constValue().longValue())))
+            .onEndEnum(DO_NOTHING)
+            .onEndField(DO_NOTHING)
+            .build();
+    handler.handleIterator(iterator);
+
+    enumSbeField.setValues(values.build());
+    return enumSbeField.build();
   }
 
   /** Helper class for handling tokens. */
@@ -156,13 +181,13 @@ final class IrFieldGenerator {
       return new Builder();
     }
 
-    void handle(TokenIterator iterator) {
+    void handleIterator(TokenIterator iterator) {
       checkArgument(iterator.current().signal() == Signal.BEGIN_FIELD, "Not beginning of field.");
       checkArgument(iterator.hasNext(), "Field does not have other tokens");
 
       do {
         Token token = iterator.current();
-        handle(token);
+        handleToken(token);
 
         if (token.signal() == Signal.END_FIELD) {
           return;
@@ -174,7 +199,7 @@ final class IrFieldGenerator {
       throw new IllegalArgumentException("Never found END_FIELD signal.");
     }
 
-    void handle(Token token) {
+    void handleToken(Token token) {
       Signal signal = token.signal();
       tokenHandlers.getOrDefault(signal, DO_NOTHING).accept(token);
     }
@@ -197,6 +222,18 @@ final class IrFieldGenerator {
 
       Builder onEndField(Consumer<Token> tokenHandler) {
         return withTokenHandler(Signal.END_FIELD, tokenHandler);
+      }
+
+      Builder onBeginEnum(Consumer<Token> tokenHandler) {
+        return withTokenHandler(Signal.BEGIN_ENUM, tokenHandler);
+      }
+
+      Builder onEndEnum(Consumer<Token> tokenHandler) {
+        return withTokenHandler(Signal.END_ENUM, tokenHandler);
+      }
+
+      Builder onValidValue(Consumer<Token> tokenHandler) {
+        return withTokenHandler(Signal.VALID_VALUE, tokenHandler);
       }
 
       private Builder withTokenHandler(Signal signal, Consumer<Token> tokenHandler) {
@@ -234,8 +271,14 @@ final class IrFieldGenerator {
       return tokens.get(idx);
     }
 
+    /** Returns the token that the iterator is currently at. */
     public Token current() {
       return tokens.get(idx);
+    }
+
+    /** Returns the next token without advancing the iterator. */
+    public Token peekNext() {
+      return tokens.get(idx + 1);
     }
   }
 }

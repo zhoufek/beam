@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableList;
+import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.io.Resources;
 import uk.co.real_logic.sbe.PrimitiveType;
 import uk.co.real_logic.sbe.ir.Ir;
@@ -48,6 +49,35 @@ public final class TestSchemas {
     private Person() {}
 
     public static final String RESOURCE_PATH = Resources.getResource("person.xml").getPath();
+  }
+
+  /** Info for only-enums.xml. */
+  public static final class OnlyEnums {
+    private OnlyEnums() {}
+
+    public static final String RESOURCE_PATH = Resources.getResource("only-enums.xml").getPath();
+
+    public static final ImmutableMap<String, Integer> UINT8_ENUM_VALUES =
+        ImmutableMap.<String, Integer>builder()
+            .put("val0", 0)
+            .put("val1", 1)
+            .put("val5", 5)
+            .build();
+    public static final ImmutableMap<String, Integer> CHAR_ENUM_VALUES =
+        ImmutableMap.<String, Integer>builder()
+            .put("FirstLetter", (int) 'a')
+            .put("SecondLetter", (int) 'b')
+            .put("FirstCapital", (int) 'A')
+            .put("EndStatement", (int) ';')
+            .build();
+
+    public static final SbeField UINT8_ENCODED_ENUM =
+        EnumSbeField.builder().setName("uint8EncodedEnum").setValues(UINT8_ENUM_VALUES).build();
+    public static final SbeField CHAR_ENCODED_ENUM =
+        EnumSbeField.builder().setName("charEncodedEnum").setValues(CHAR_ENUM_VALUES).build();
+
+    public static final ImmutableList<SbeField> FIELDS =
+        ImmutableList.of(UINT8_ENCODED_ENUM, CHAR_ENCODED_ENUM);
   }
 
   /** Info for only-primitives.xml. */

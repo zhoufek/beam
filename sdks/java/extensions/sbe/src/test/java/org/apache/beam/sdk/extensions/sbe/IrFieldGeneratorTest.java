@@ -23,6 +23,7 @@ import static org.junit.Assert.assertThrows;
 
 import java.util.UUID;
 import org.apache.beam.sdk.extensions.sbe.SbeSchema.IrOptions;
+import org.apache.beam.sdk.extensions.sbe.TestSchemas.OnlyEnums;
 import org.apache.beam.sdk.extensions.sbe.TestSchemas.OnlyPrimitives;
 import org.apache.beam.sdk.extensions.sbe.TestSchemas.OnlyPrimitivesMultiMessage;
 import org.apache.beam.sdk.extensions.sbe.TestSchemas.OnlyPrimitivesMultiMessage.Primitives1;
@@ -42,6 +43,15 @@ public final class IrFieldGeneratorTest {
     ImmutableList<SbeField> actual = IrFieldGenerator.generateFields(ir, IrOptions.DEFAULT);
 
     assertEquals(OnlyPrimitives.FIELDS, actual);
+  }
+
+  @Test
+  public void testGenerateFieldsAllEnums() throws Exception {
+    Ir ir = getIr(OnlyEnums.RESOURCE_PATH);
+
+    ImmutableList<SbeField> actual = IrFieldGenerator.generateFields(ir, IrOptions.DEFAULT);
+
+    assertEquals(OnlyEnums.FIELDS, actual);
   }
 
   @Test

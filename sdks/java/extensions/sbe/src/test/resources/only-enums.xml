@@ -1,0 +1,35 @@
+<sbe:messageSchema xmlns:sbe="http://fixprotocol.io/2016/sbe"
+    xmlns:xi="http://www.w3.org/2001/XInclude"
+    package="baseline"
+    id="1"
+    version="0"
+    semanticVersion="5.2"
+    description="Schema with a single message that only contains SBE primitives"
+    byteOrder="littleEndian">
+  <types>
+    <!-- Message header copied from standard at https://www.fixtrading.org/standards/sbe-online/ -->
+    <composite name="messageHeader" description="Template ID and length of message root">
+      <type name="blockLength" primitiveType="uint16"/>
+      <type name="templateId" primitiveType="uint16"/>
+      <type name="schemaId" primitiveType="uint16"/>
+      <type name="version" primitiveType="uint16"/>
+      <type name="numGroups" primitiveType="uint16" />
+      <type name="numVarDataFields" primitiveType="uint16" />
+    </composite>
+    <enum name="uint8Enum" encodingType="uint8" description="Represents an enum with uint8 encoding">
+      <validValue name="val0">0</validValue>
+      <validValue name="val1">1</validValue>
+      <validValue name="val5">5</validValue>
+    </enum>
+    <enum name="charEnum" encodingType="char" description="Example enum with char encoding">
+      <validValue name="FirstLetter">a</validValue>
+      <validValue name="SecondLetter">b</validValue>
+      <validValue name="FirstCapital">A</validValue>
+      <validValue name="EndStatement">;</validValue>
+    </enum>
+  </types>
+  <sbe:message name="Enums" id="1" description="Contains various enums">
+    <field name="uint8EncodedEnum" id="1" type="uint8Enum" />
+    <field name="charEncodedEnum" id="2" type="charEnum" />
+  </sbe:message>
+</sbe:messageSchema>
