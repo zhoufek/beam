@@ -130,7 +130,7 @@ final class IrFieldGenerator {
     return primitiveField.build();
   }
 
-  /** */
+  /** Helper class for handling tokens. */
   private static final class FieldHandler {
     private final ImmutableMap<Signal, Consumer<Token>> tokenHandlers;
 
@@ -165,6 +165,7 @@ final class IrFieldGenerator {
       tokenHandlers.getOrDefault(signal, DO_NOTHING).accept(token);
     }
 
+    /** Builder for {@link FieldHandler}. */
     static final class Builder {
       private final Map<Signal, Consumer<Token>> tokenHandlers;
 

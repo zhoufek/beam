@@ -115,6 +115,7 @@ public final class PrimitiveSbeFieldTest {
             .setName(NAME)
             .setIsRequired(true)
             .setType(PrimitiveType.CHAR)
+            .setCharacterEncoding("ASCII")
             .build();
 
     Field actual =
