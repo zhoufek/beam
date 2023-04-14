@@ -19,14 +19,21 @@ package org.apache.beam.sdk.io.kafka;
 
 import static org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions.checkArgument;
 
+import avro.shaded.com.google.common.collect.Maps;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.util.FileDownloader;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
@@ -72,6 +79,67 @@ final class KafkaIOUtils {
   // default Kafka 0.9 Consumer supplier.
   static final SerializableFunction<Map<String, Object>, Consumer<byte[], byte[]>>
       KAFKA_CONSUMER_FACTORY_FN = KafkaConsumer::new;
+
+  // default Kafka 0.9 Producer supplier
+  static final SerializableFunction<Map<String, Object>, Producer<byte[], byte[]>>
+      KAFKA_PRODUCER_FACTORY_FN = KafkaProducer::new;
+
+  /**
+   * Kafka {@link Consumer} supplier that can download certs from GCS.
+   *
+   * <p>This replaces all config values starting with `gs://` with a path to a file downloaded from
+   * the GCS path.
+   */
+  static final SerializableFunction<Map<String, Object>, Consumer<byte[], byte[]>>
+      KAFKA_GCS_TRUST_STORE_CONSUMER_FACTORY_FN =
+          new FactoryWithGcsTrustStore<>(KAFKA_CONSUMER_FACTORY_FN);
+
+  /**
+   * Kafka {@link Producer} supplier that can download certs from GCS.
+   *
+   * <p>This replaces all config values starting with `gs://` with a path to a file downloaded from
+   * the GCS path.
+   */
+  static final SerializableFunction<Map<String, Object>, Producer<byte[], byte[]>>
+      KAFKA_GCS_TRUST_STORE_PRODUCER_FACTORY_FN =
+          new FactoryWithGcsTrustStore<>(KAFKA_PRODUCER_FACTORY_FN);
+
+  private static final class FactoryWithGcsTrustStore<T>
+      implements SerializableFunction<Map<String, Object>, T> {
+    private final SerializableFunction<Map<String, Object>, T> baseFactoryFn;
+
+    FactoryWithGcsTrustStore(SerializableFunction<Map<String, Object>, T> baseFactoryFn) {
+      this.baseFactoryFn = baseFactoryFn;
+    }
+
+    @Override
+    public T apply(Map<String, Object> input) {
+      Map<String, Object> factoryInput =
+          input.entrySet().stream()
+              .map(e -> Maps.immutableEntry(e.getKey(), identityOrGcsToLocalFile(e.getValue())))
+              .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+      return baseFactoryFn.apply(factoryInput);
+    }
+
+    private static Object identityOrGcsToLocalFile(Object configValue) {
+      if (configValue instanceof String) {
+        String configStr = (String) configValue;
+        if (configStr.startsWith("gs://")) {
+          try {
+            Path localFile = Files.createTempFile("", "");
+            FileDownloader.download(configStr, localFile);
+            return localFile.toAbsolutePath().toString();
+          } catch (IOException e) {
+            throw new IllegalArgumentException(
+                String.format(
+                    "Unable to fetch file %s to be used locally to create a Kafka Consumer.",
+                    configStr));
+          }
+        }
+      }
+      return configValue;
+    }
+  }
 
   /**
    * Returns a new config map which is merge of current config and updates. Verifies the updates do

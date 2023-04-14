@@ -17,6 +17,8 @@
  */
 package org.apache.beam.sdk.io.kafka;
 
+import static org.apache.beam.sdk.io.kafka.KafkaIOUtils.KAFKA_GCS_TRUST_STORE_PRODUCER_FACTORY_FN;
+
 import com.google.auto.service.AutoService;
 import com.google.auto.value.AutoValue;
 import java.io.Serializable;
@@ -114,6 +116,7 @@ public class KafkaWriteSchemaTransformProvider
                           configOverrides == null
                               ? new HashMap<>()
                               : new HashMap<String, Object>(configOverrides))
+                      .withProducerFactoryFn(KAFKA_GCS_TRUST_STORE_PRODUCER_FACTORY_FN)
                       .withKeySerializer(ByteArraySerializer.class)
                       .withValueSerializer(ByteArraySerializer.class));
           return PCollectionRowTuple.empty(input.getPipeline());
