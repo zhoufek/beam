@@ -17,15 +17,31 @@
  */
 package org.apache.beam.sdk.io.kafka;
 
+import static org.apache.beam.sdk.io.kafka.KafkaIOUtils.KAFKA_GCS_TRUST_STORE_CONSUMER_FACTORY_FN;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
+import org.apache.beam.sdk.util.FileDownloader;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.MockConsumer;
+import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import org.mockito.MockedStatic;
+import org.mockito.stubbing.Answer;
 
 /** Tests of {@link KafkaIOUtils}. */
 @RunWith(JUnit4.class)
@@ -63,5 +79,30 @@ public class KafkaIOUtilsTest {
     assertEquals(offsetGroupId, offsetConfig.get(ConsumerConfig.GROUP_ID_CONFIG));
     assertEquals(false, offsetConfig.get(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG));
     assertEquals("read_uncommitted", offsetConfig.get(ConsumerConfig.ISOLATION_LEVEL_CONFIG));
+  }
+
+  @Test
+  public void testConsumerGcsFactoryOverridesGcsFilePaths() throws IOException {
+    String gcsPath = "gs://path/to/gcs/file";
+    Map<String, Object> originalMap = ImmutableMap.of("someValue", gcsPath);
+    Path targetPath = Paths.get("");
+
+    try (MockedStatic<Files> createTempMock = mockStatic(Files.class)) {
+      createTempMock.when(() -> Files.createTempFile(any(), any())).thenReturn(targetPath);
+      try (MockedStatic<FileDownloader> downloaderMock = mockStatic(FileDownloader.class)) {
+        downloaderMock.when(() -> FileDownloader.download(any(), any())).thenAnswer(invocation -> null);
+        try (MockedStatic<KafkaConsumer> consumerMock = mockStatic(KafkaConsumer.class)) {
+          consumerMock.when(KafkaConsumer::new).thenReturn(new MockConsumer<byte[], byte[]>(
+              OffsetResetStrategy.NONE));
+
+          try (Consumer<byte[], byte[]> unused = KAFKA_GCS_TRUST_STORE_CONSUMER_FACTORY_FN.apply(originalMap)) {
+            // Just here for auto close
+          }
+
+          Map<String, Object> expectedMap = ImmutableMap.of("someValue", targetPath.toAbsolutePath().toString());
+          consumerMock.verify(() -> new KafkaConsumer<byte[], byte[]>(expectedMap));
+        }
+      }
+    }
   }
 }
