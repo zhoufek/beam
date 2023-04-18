@@ -17,34 +17,35 @@
  */
 package org.apache.beam.sdk.io.kafka;
 
-import static org.apache.beam.sdk.io.kafka.KafkaIOUtils.KAFKA_GCS_TRUST_STORE_CONSUMER_FACTORY_FN;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
+import static org.powermock.api.mockito.PowerMockito.mockStatic;
+import static org.powermock.api.mockito.PowerMockito.when;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import org.apache.beam.sdk.io.kafka.KafkaIOUtils.FactoryWithGcsTrustStore;
+import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.util.FileDownloader;
+import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableList;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.MockConsumer;
 import org.apache.kafka.clients.consumer.OffsetResetStrategy;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
-import org.mockito.MockedStatic;
-import org.mockito.stubbing.Answer;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 
 /** Tests of {@link KafkaIOUtils}. */
-@RunWith(JUnit4.class)
+@RunWith(PowerMockRunner.class)
 public class KafkaIOUtilsTest {
 
   @Test
@@ -82,27 +83,64 @@ public class KafkaIOUtilsTest {
   }
 
   @Test
-  public void testConsumerGcsFactoryOverridesGcsFilePaths() throws IOException {
+  @PrepareForTest({
+    FileDownloader.class,
+    FactoryWithGcsTrustStore.class,
+  })
+  public void testGcsFactoryOverridesGcsFilePaths() throws Exception {
+    // Arrange
     String gcsPath = "gs://path/to/gcs/file";
-    Map<String, Object> originalMap = ImmutableMap.of("someValue", gcsPath);
+    Map<String, Object> originalMap =
+        new HashMap<>(ImmutableMap.of("someConfig", gcsPath, "someOtherConfig", "foo"));
     Path targetPath = Paths.get("");
 
-    try (MockedStatic<Files> createTempMock = mockStatic(Files.class)) {
-      createTempMock.when(() -> Files.createTempFile(any(), any())).thenReturn(targetPath);
-      try (MockedStatic<FileDownloader> downloaderMock = mockStatic(FileDownloader.class)) {
-        downloaderMock.when(() -> FileDownloader.download(any(), any())).thenAnswer(invocation -> null);
-        try (MockedStatic<KafkaConsumer> consumerMock = mockStatic(KafkaConsumer.class)) {
-          consumerMock.when(KafkaConsumer::new).thenReturn(new MockConsumer<byte[], byte[]>(
-              OffsetResetStrategy.NONE));
+    mockStatic(Files.class);
+    when(Files.createTempFile(any(), any())).thenAnswer(invocation -> targetPath);
 
-          try (Consumer<byte[], byte[]> unused = KAFKA_GCS_TRUST_STORE_CONSUMER_FACTORY_FN.apply(originalMap)) {
-            // Just here for auto close
-          }
+    mockStatic(FileDownloader.class);
+    when(FileDownloader.class, "download", any(), any()).thenAnswer(invocation -> null);
 
-          Map<String, Object> expectedMap = ImmutableMap.of("someValue", targetPath.toAbsolutePath().toString());
-          consumerMock.verify(() -> new KafkaConsumer<byte[], byte[]>(expectedMap));
-        }
-      }
+    FakeKafkaConsumerFactory baseFactory = new FakeKafkaConsumerFactory();
+
+    // Act
+    new FactoryWithGcsTrustStore<>(baseFactory).apply(originalMap);
+
+    // Assert
+    Map<String, Object> expectedMap =
+        new HashMap<>(
+            ImmutableMap.of(
+                "someConfig", targetPath.toAbsolutePath().toString(), "someOtherConfig", "foo"));
+    assertEquals(baseFactory.callArgsSoFar(), ImmutableList.of(expectedMap));
+  }
+
+  private abstract static class FakeKafkaFactory<T>
+      implements SerializableFunction<Map<String, Object>, T> {
+    private final List<ImmutableMap<String, Object>> callArgs;
+
+    FakeKafkaFactory() {
+      this.callArgs = new ArrayList<>();
+    }
+
+    ImmutableList<ImmutableMap<String, Object>> callArgsSoFar() {
+      return ImmutableList.copyOf(callArgs);
+    }
+
+    protected void recordCallArg(Map<String, Object> arg) {
+      callArgs.add(ImmutableMap.copyOf(arg));
+    }
+  }
+
+  private static final class FakeKafkaConsumerFactory
+      extends FakeKafkaFactory<Consumer<byte[], byte[]>> {
+
+    FakeKafkaConsumerFactory() {
+      super();
+    }
+
+    @Override
+    public Consumer<byte[], byte[]> apply(Map<String, Object> input) {
+      recordCallArg(input);
+      return new MockConsumer<>(OffsetResetStrategy.NONE);
     }
   }
 }

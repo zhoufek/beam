@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Random;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.util.FileDownloader;
+import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.annotations.VisibleForTesting;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.collect.ImmutableMap;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -104,7 +105,8 @@ final class KafkaIOUtils {
       KAFKA_GCS_TRUST_STORE_PRODUCER_FACTORY_FN =
           new FactoryWithGcsTrustStore<>(KAFKA_PRODUCER_FACTORY_FN);
 
-  private static final class FactoryWithGcsTrustStore<T>
+  @VisibleForTesting
+  static final class FactoryWithGcsTrustStore<T>
       implements SerializableFunction<Map<String, Object>, T> {
     private final SerializableFunction<Map<String, Object>, T> baseFactoryFn;
 
