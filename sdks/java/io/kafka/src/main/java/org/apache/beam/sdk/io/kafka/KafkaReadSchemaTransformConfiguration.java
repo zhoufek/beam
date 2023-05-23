@@ -21,6 +21,7 @@ import com.google.auto.value.AutoValue;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.schemas.AutoValueSchema;
 import org.apache.beam.sdk.schemas.annotations.DefaultSchema;
 import org.apache.beam.sdk.schemas.annotations.SchemaFieldDescription;
@@ -87,6 +88,13 @@ public abstract class KafkaReadSchemaTransformConfiguration {
   public abstract String getSchema();
 
   @SchemaFieldDescription(
+      "Whether to use a KafkaAvroDeserializer. This must be set to true if data was written to "
+          + "the topic using KafkaAvroSerializer. This value is only used when a schema is "
+          + "provided. It is not used if using a schema registry.")
+  @Default.Boolean(false)
+  public abstract Boolean getUseKafkaAvroDeserializer();
+
+  @SchemaFieldDescription(
       "What to do when there is no initial offset in Kafka or if the current offset"
           + " does not exist any more on the server. (1) earliest: automatically reset the offset to the earliest"
           + " offset. (2) latest: automatically reset the offset to the latest offset"
@@ -117,6 +125,8 @@ public abstract class KafkaReadSchemaTransformConfiguration {
     public abstract Builder setConfluentSchemaRegistrySubject(String subject);
 
     public abstract Builder setSchema(String schema);
+
+    public abstract Builder setUseKafkaAvroDeserializer(Boolean value);
 
     public abstract Builder setFormat(String format);
 
