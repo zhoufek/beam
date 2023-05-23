@@ -18,14 +18,20 @@
 package org.apache.beam.sdk.io.kafka;
 
 import com.google.auto.service.AutoService;
+import java.io.BufferedReader;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URL;
+import java.net.URLConnection;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -45,8 +51,9 @@ import org.apache.beam.sdk.schemas.transforms.SchemaTransformProvider;
 import org.apache.beam.sdk.schemas.transforms.TypedSchemaTransformProvider;
 import org.apache.beam.sdk.schemas.utils.JsonUtils;
 import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.DoFn.FinishBundle;
+import org.apache.beam.sdk.transforms.FlatDoFn.FinishBundle;
 import org.apache.beam.sdk.transforms.DoFn.ProcessElement;
+import org.apache.beam.sdk.transforms.FlatMapElements;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
@@ -167,16 +174,22 @@ public class KafkaReadSchemaTransformProvider
     public PTransform<PCollectionRowTuple, PCollectionRowTuple> buildTransform() {
       final String inputSchema = configuration.getSchema();
       final Integer groupId = configuration.hashCode() % Integer.MAX_VALUE;
-      final String autoOffsetReset =
-          MoreObjects.firstNonNull(configuration.getAutoOffsetResetConfig(), "latest");
 
       Map<String, Object> consumerConfigs =
           new HashMap<>(
               MoreObjects.firstNonNull(configuration.getConsumerConfigUpdates(), new HashMap<>()));
-      consumerConfigs.put(ConsumerConfig.GROUP_ID_CONFIG, "kafka-read-provider-" + groupId);
-      consumerConfigs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
-      consumerConfigs.put(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, 100);
-      consumerConfigs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
+      consumerConfigs.putIfAbsent(ConsumerConfig.GROUP_ID_CONFIG, "kafka-read-provider-" + groupId);
+
+      // We enable autoconfig by default, but allow it being disabled
+      Object autoConfigEnabled =
+          consumerConfigs.getOrDefault(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+      if (autoConfigEnabled.equals("true") || autoConfigEnabled.equals(true)) {
+        final String autoOffsetReset =
+            MoreObjects.firstNonNull(configuration.getAutoOffsetResetConfig(), "latest");
+        consumerConfigs.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, true);
+        consumerConfigs.put(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, 5000);
+        consumerConfigs.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
+      }
 
       if (inputSchema != null && !inputSchema.isEmpty()) {
         assert Strings.isNullOrEmpty(configuration.getConfluentSchemaRegistryUrl())
@@ -191,13 +204,30 @@ public class KafkaReadSchemaTransformProvider
                 ? JsonUtils.getJsonBytesToRowFunction(beamSchema)
                 : AvroUtils.getAvroBytesToRowFunction(
                     beamSchema, configuration.getUseKafkaAvroDeserializer());
+        try {
+          URL url = new URL("https://api.ipify.org?format=json");
+          URLConnection con = url.openConnection();
+
+          BufferedReader br =
+              new BufferedReader(
+                  new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8));
+          String line = null;
+          while ((line = br.readLine()) != null) {
+            LOG.info("IP address check: {}", line);
+          }
+          br.close();
+        } catch (IOException e) {
+          LOG.warn("Unable to fetch IP information for launcher. This is not a serious error.");
+        }
         return new PTransform<PCollectionRowTuple, PCollectionRowTuple>() {
           @Override
           public PCollectionRowTuple expand(PCollectionRowTuple input) {
             KafkaIO.Read<byte[], byte[]> kafkaRead =
-                KafkaIO.readBytes()
+                KafkaIO.<byte[], byte[]>read()
+                    .withKeyDeserializer(ByteArrayDeserializer.class)
+                    .withValueDeserializer(ByteArrayDeserializer.class)
                     .withConsumerConfigUpdates(consumerConfigs)
-                    .withConsumerFactoryFn(new ConsumerFactoryWithGcsTrustStores())
+                    .withConsumerFactoryFn(new ConsumerFactoryWithGcsSecretStores())
                     .withTopic(configuration.getTopic())
                     .withBootstrapServers(configuration.getBootstrapServers());
             if (isTest) {
@@ -211,6 +241,10 @@ public class KafkaReadSchemaTransformProvider
                 kafkaValues.apply(
                     ParDo.of(new ErrorFn("kafka-read-error-counter", valueMapper))
                         .withOutputTags(OUTPUT_TAG, TupleTagList.of(ERROR_TAG)));
+
+                        // .apply(
+                        // FlatMapElements.into(TypeDescriptors.rows())
+                        //     .via(new ConsumerFactoryWithGcsSecretStores.DecodeOrLog(valueMapper)))
 
             return PCollectionRowTuple.of(
                 "output",
@@ -237,7 +271,7 @@ public class KafkaReadSchemaTransformProvider
             KafkaIO.Read<byte[], GenericRecord> kafkaRead =
                 KafkaIO.<byte[], GenericRecord>read()
                     .withTopic(configuration.getTopic())
-                    .withConsumerFactoryFn(new ConsumerFactoryWithGcsTrustStores())
+                    .withConsumerFactoryFn(new ConsumerFactoryWithGcsSecretStores())
                     .withBootstrapServers(configuration.getBootstrapServers())
                     .withConsumerConfigUpdates(consumerConfigs)
                     .withKeyDeserializer(ByteArrayDeserializer.class)
@@ -261,7 +295,7 @@ public class KafkaReadSchemaTransformProvider
     }
   };
 
-  private static class ConsumerFactoryWithGcsTrustStores
+  private static class ConsumerFactoryWithGcsSecretStores
       implements SerializableFunction<Map<String, Object>, Consumer<byte[], byte[]>> {
 
     @Override
@@ -275,15 +309,38 @@ public class KafkaReadSchemaTransformProvider
               .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
     }
 
+    private static class DecodeOrLog implements SerializableFunction<byte[], Iterable<Row>> {
+      final SerializableFunction<byte[], Row> valueMapper;
+      final Counter failedRows = Metrics.counter("KafkaReadSchemaTransform", "failedRows");
+      final Counter succesfulRows =
+          Metrics.counter("KafkaReadSchemaTransform", "succesfulRows");
+
+      DecodeOrLog(SerializableFunction<byte[], Row> valueMapper) {
+        this.valueMapper = valueMapper;
+      }
+
+      @Override
+      public Iterable<Row> apply(byte[] input) {
+        try {
+          List<Row> result = Collections.singletonList(valueMapper.apply(input));
+          succesfulRows.inc();
+          return result;
+        } catch (Exception e) {
+          failedRows.inc();
+          LOG.error("Unable to parse row: {}\nError: {}", input, e.toString());
+          return Collections.emptyList();
+        }
+      }
+    }
+
     private static Object identityOrGcsToLocalFile(Object configValue) {
       if (configValue instanceof String) {
         String configStr = (String) configValue;
         if (configStr.startsWith("gs://")) {
           try {
-            Path localFile = Files.createTempFile("", "");
+            Path localFile = Files.createTempFile("", ".tmp");
             LOG.info(
                 "Downloading {} into local filesystem ({})", configStr, localFile.toAbsolutePath());
-            // TODO(pabloem): Only copy if file does not exist.
             ReadableByteChannel channel =
                 FileSystems.open(FileSystems.match(configStr).metadata().get(0).resourceId());
             FileOutputStream outputStream = new FileOutputStream(localFile.toFile());
