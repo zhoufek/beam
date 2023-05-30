@@ -31,8 +31,8 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,9 +51,6 @@ import org.apache.beam.sdk.schemas.transforms.SchemaTransformProvider;
 import org.apache.beam.sdk.schemas.transforms.TypedSchemaTransformProvider;
 import org.apache.beam.sdk.schemas.utils.JsonUtils;
 import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.FlatDoFn.FinishBundle;
-import org.apache.beam.sdk.transforms.DoFn.ProcessElement;
-import org.apache.beam.sdk.transforms.FlatMapElements;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
@@ -309,29 +306,29 @@ public class KafkaReadSchemaTransformProvider
               .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
     }
 
-    private static class DecodeOrLog implements SerializableFunction<byte[], Iterable<Row>> {
-      final SerializableFunction<byte[], Row> valueMapper;
-      final Counter failedRows = Metrics.counter("KafkaReadSchemaTransform", "failedRows");
-      final Counter succesfulRows =
-          Metrics.counter("KafkaReadSchemaTransform", "succesfulRows");
-
-      DecodeOrLog(SerializableFunction<byte[], Row> valueMapper) {
-        this.valueMapper = valueMapper;
-      }
-
-      @Override
-      public Iterable<Row> apply(byte[] input) {
-        try {
-          List<Row> result = Collections.singletonList(valueMapper.apply(input));
-          succesfulRows.inc();
-          return result;
-        } catch (Exception e) {
-          failedRows.inc();
-          LOG.error("Unable to parse row: {}\nError: {}", input, e.toString());
-          return Collections.emptyList();
-        }
-      }
-    }
+    // private static class DecodeOrLog implements SerializableFunction<byte[], Iterable<Row>> {
+    //   final SerializableFunction<byte[], Row> valueMapper;
+    //   final Counter failedRows = Metrics.counter("KafkaReadSchemaTransform", "failedRows");
+    //   final Counter succesfulRows =
+    //       Metrics.counter("KafkaReadSchemaTransform", "succesfulRows");
+    //
+    //   DecodeOrLog(SerializableFunction<byte[], Row> valueMapper) {
+    //     this.valueMapper = valueMapper;
+    //   }
+    //
+    //   @Override
+    //   public Iterable<Row> apply(byte[] input) {
+    //     try {
+    //       List<Row> result = Collections.singletonList(valueMapper.apply(input));
+    //       succesfulRows.inc();
+    //       return result;
+    //     } catch (Exception e) {
+    //       failedRows.inc();
+    //       LOG.error("Unable to parse row: {}\nError: {}", input, e.toString());
+    //       return Collections.emptyList();
+    //     }
+    //   }
+    // }
 
     private static Object identityOrGcsToLocalFile(Object configValue) {
       if (configValue instanceof String) {
