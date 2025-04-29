@@ -1191,6 +1191,98 @@ class RunnerApiTest(unittest.TestCase):
                     namespace='apache_beam.pipeline_test.MyPTransform',
                     double_value=1.1).SerializeToString()),
         ])
+  
+  def test_runner_api_roundtrip_preserves_display_data(self):
+    class MyPTransform(beam.PTransform):
+      def display_data(self):
+        parent_dd = super().display_data()
+        parent_dd['dd_string'] = DisplayDataItem(
+            'dd_string_value', label='dd_string_label')
+        parent_dd['dd_string_2'] = DisplayDataItem('dd_string_value_2')
+        parent_dd['dd_bool_false'] = DisplayDataItem(False, label='dd_bool_false_label')
+        parent_dd['dd_bool_true'] = DisplayDataItem(True, label='dd_bool_true_label')
+        parent_dd['dd_int'] = DisplayDataItem(42, label='dd_int_label')
+        parent_dd['dd_double'] = DisplayDataItem(1.1, label='dd_double_label')
+        parent_dd['dd_raw_str'] = 'dd_raw_str_value'
+        return parent_dd
+      
+      def expand(self, p):
+        return p | beam.Create([None])
+    
+    p = beam.Pipeline()
+    _ = p | MyPTransform()
+
+    expected_dd = [
+      beam_runner_api_pb2.DisplayData(
+        urn=common_urns.StandardDisplayData.DisplayData.LABELLED.urn,
+        payload=beam_runner_api_pb2.LabelledPayload(
+          label='dd_string_label',
+          key='dd_string',
+          namespace='apache_beam.pipeline_test.MyPTransform',
+          string_value='dd_string_value').SerializeToString()),
+      beam_runner_api_pb2.DisplayData(
+        urn=common_urns.StandardDisplayData.DisplayData.LABELLED.urn,
+        payload=beam_runner_api_pb2.LabelledPayload(
+          label='dd_string_2',
+          key='dd_string_2',
+          namespace='apache_beam.pipeline_test.MyPTransform',
+          string_value='dd_string_value_2').SerializeToString()),
+      beam_runner_api_pb2.DisplayData(
+        urn=common_urns.StandardDisplayData.DisplayData.LABELLED.urn,
+        payload=beam_runner_api_pb2.LabelledPayload(
+          label='dd_bool_false_label',
+          key='dd_bool_false',
+          namespace='apache_beam.pipeline_test.MyPTransform',
+          bool_value=False).SerializeToString()),
+      beam_runner_api_pb2.DisplayData(
+        urn=common_urns.StandardDisplayData.DisplayData.LABELLED.urn,
+        payload=beam_runner_api_pb2.LabelledPayload(
+          label='dd_bool_true_label',
+          key='dd_bool_true',
+          namespace='apache_beam.pipeline_test.MyPTransform',
+          bool_value=True).SerializeToString()),
+      beam_runner_api_pb2.DisplayData(
+        urn=common_urns.StandardDisplayData.DisplayData.LABELLED.urn,
+        payload=beam_runner_api_pb2.LabelledPayload(
+          label='dd_int_label',
+          key='dd_int',
+          namespace='apache_beam.pipeline_test.MyPTransform',
+          int_value=42).SerializeToString()),
+      beam_runner_api_pb2.DisplayData(
+        urn=common_urns.StandardDisplayData.DisplayData.LABELLED.urn,
+        payload=beam_runner_api_pb2.LabelledPayload(
+          label='dd_double_label',
+          key='dd_double',
+          namespace='apache_beam.pipeline_test.MyPTransform',
+          double_value=1.1).SerializeToString()),
+      beam_runner_api_pb2.DisplayData(
+        urn=common_urns.StandardDisplayData.DisplayData.LABELLED.urn,
+        payload=beam_runner_api_pb2.LabelledPayload(
+          label='dd_raw_str',
+          key='dd_raw_str',
+          namespace='apache_beam.pipeline_test.MyPTransform',
+          string_value='dd_raw_str_value').SerializeToString()),
+    ]
+
+    # Initial check to make sure that the display data is right.
+    def get_transforms(proto_pipeline):
+      return [
+        transform
+        for transform in proto_pipeline.components.transforms.values()
+        if transform.unique_name == 'MyPTransform'
+      ]
+    
+    proto_pipeline = Pipeline.to_runner_api(p, use_fake_coders=True)
+    transforms, = get_transforms(proto_pipeline)
+    self.assertIsNotNone(transforms)
+    self.assertListEqual(list(transforms.display_data), expected_dd)
+
+    # Complete the roundtrip. Conversion back to proto for comparison.
+    proto_pipeline = Pipeline.to_runner_api(
+      Pipeline.from_runner_api(proto_pipeline, None, None), use_fake_coders=True)
+    transforms, = get_transforms(proto_pipeline)
+    self.assertIsNotNone(transforms)
+    self.assertListEqual(list(transforms.display_data), expected_dd)
 
   def test_runner_api_roundtrip_preserves_resource_hints(self):
     p = beam.Pipeline()
