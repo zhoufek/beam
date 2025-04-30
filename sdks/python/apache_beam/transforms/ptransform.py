@@ -67,6 +67,7 @@ from apache_beam import pvalue
 from apache_beam.internal import pickler
 from apache_beam.internal import util
 from apache_beam.portability import python_urns
+from apache_beam.portability.api import beam_runner_api_pb2
 from apache_beam.pvalue import DoOutputsTuple
 from apache_beam.transforms import resources
 from apache_beam.transforms.display import DisplayDataItem
@@ -353,10 +354,13 @@ class PTransform(WithTypeHints, HasDisplayData, Generic[InputT, OutputT]):
   # Default is unset.
   _user_label = None  # type: Optional[str]
 
-  def __init__(self, label=None):
-    # type: (Optional[str]) -> None
+  _display_data = {}  # type: dict
+
+  def __init__(self, label=None, display_data=None):
+    # type: (Optional[str], Optional[dict[str, Any]]) -> None
     super().__init__()
     self.label = label  # type: ignore # https://github.com/python/mypy/issues/3004
+    self._display_data = display_data or {}
 
   @property
   def label(self):
@@ -371,6 +375,10 @@ class PTransform(WithTypeHints, HasDisplayData, Generic[InputT, OutputT]):
   def default_label(self):
     # type: () -> str
     return self.__class__.__name__
+  
+  def display_data(self):
+    # type: () -> dict[str, Any]
+    return self._display_data
 
   def annotations(self) -> dict[str, Union[bytes, str, message.Message]]:
     return {
@@ -795,10 +803,42 @@ class PTransform(WithTypeHints, HasDisplayData, Generic[InputT, OutputT]):
 
 
 @PTransform.register_urn(python_urns.GENERIC_COMPOSITE_TRANSFORM, None)
-def _create_transform(unused_ptransform, payload, unused_context):
-  empty_transform = PTransform()
-  empty_transform._fn_api_payload = payload
-  return empty_transform
+def _create_transform(ptransform, payload, unused_context):
+  def get_display_data(dd_proto):
+    # type: (beam_runner_api_pb2.DisplayData) -> DisplayDataItem
+
+    payload = beam_runner_api_pb2.LabelledPayload()
+    payload.ParseFromString(dd_proto.payload)
+
+    value = None
+    if payload.HasField('bool_value'):
+      value = payload.bool_value
+    elif payload.HasField('string_value'):
+      value = payload.string_value
+    elif payload.HasField('int_value'):
+      value = payload.int_value
+    elif payload.HasField('double_value'):
+      value = payload.double_value
+
+    return DisplayDataItem(
+      label=payload.label,
+      key=payload.key,
+      namespace=payload.namespace,
+      value=value
+    )
+  
+  display_data_dict = {}
+  for dd_proto in ptransform.display_data:
+    item = get_display_data(dd_proto)
+    display_data_dict[item.key] = item
+
+  result = PTransform(display_data=display_data_dict)
+  result._fn_api_payload = payload
+  if display_data_dict:
+    result._get_display_data_namespace = (
+      lambda : display_data_dict[next(iter(display_data_dict))].namespace
+    )
+  return result
 
 
 @PTransform.register_urn(python_urns.PICKLED_TRANSFORM, None)
